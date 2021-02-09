@@ -61,11 +61,20 @@ def payoff(exercise_val, path, i, K, m):
 # generate paths
 def generate_paths(m, n, S0, sigma, r, dt, dW, path):
     S = S0
+    # W = 0
+    # t = 0
     for j in range(0, m):
-        for i in range(0, n):
+        path[j][0] = S0
+        for i in range(1, n):
             S += r * S * dt + sigma[i] * S * math.sqrt(dt) * dW[j][i]
             path[j][i] = S
+            """
+            W += math.sqrt(dt) * dW[j][i]
+            t += dt
+            path[j][i] = S0 * math.exp(sigma[i]*W + (r - 1/2 * (sigma[i]**2))*t)
+            """
         S = S0
+        # W = 0
 
 # generate the paths and do the regression steps backwards
 def euler_path(m, n, S0, sigma, r, K, T, dW, test_functions, exercise_boundary):
@@ -79,9 +88,7 @@ def euler_path(m, n, S0, sigma, r, K, T, dW, test_functions, exercise_boundary):
     cashflow = np.zeros(m)
 
     for i in range(n - 1, 0, -1):
-        # EXERCISE VALUE[0 ... m] = MAX(0.0, K - PATH[0 ... m][FROM 98 TO 1])
         payoff(exercise_val, path, i, K, m)
-        # IF EXERCISE[0 ... m] > CONTINUATION[0 ... m] CASHFLOW[0 ... m] = EXERCISE[0 ... m]
         determine(continue_val, exercise_val, cashflow, m, i, exercise_boundary)
 
         x_train = np.zeros((m, len(test_functions)))
@@ -105,10 +112,10 @@ def euler_path(m, n, S0, sigma, r, K, T, dW, test_functions, exercise_boundary):
                 y_train[size_regression] = cashflow[j]
                 size_regression += 1
 
+        # NN regression
         x_train = x_train[:size_regression]
         y_train = y_train[:size_regression]
 
-        # NN
         mean_label = y_train.mean(axis=0)
         std_label = y_train.std(axis=0)
         mean_feat = x_train.mean(axis=0)
@@ -117,27 +124,12 @@ def euler_path(m, n, S0, sigma, r, K, T, dW, test_functions, exercise_boundary):
         y_train = (y_train-mean_label)/std_label
 
         linear_model = SimpleLinearRegression('zeros')
-        linear_model.train(x_train, y_train, learning_rate=0.1, epochs=50)
-
-        """
-        mean_label = y.mean(axis=0)
-        std_label = y.std(axis=0)
-        mean_feat = x.mean(axis=0)
-        std_feat = x.std(axis=0)
-        """
+        linear_model.train(x_train, y_train, learning_rate=0.02, epochs=50)
 
         x = (x-mean_feat)/std_feat
         continue_val = linear_model.predict(x)
         continue_val *= std_label
         continue_val += mean_label
-
-        """
-        sum = 0.0
-        for k in range(0, m):
-            sum += (continue_val[k] - y[k])**2
-        print("squares sum:")
-        print(sum)
-        """
 
     payoff(exercise_val, path, 0, K, m)
     determine(continue_val, exercise_val, cashflow, m, 0, exercise_boundary)
@@ -209,14 +201,12 @@ class AmericanPutOption(object):
 
 def main(m, n, S0, T, K, r, sigma, seed_1, seed_2):
     ao = AmericanPutOption(m, n, S0, T, K, r, sigma)
-
     np.random.seed(seed_1)
     ao.dW = np.random.normal(0,1,(m,n))
 
     test_functions = [l_0, l_1, l_2, l_3, l_4, l_5, l_6]
     exercise_boundary = np.full(m, 100)
 
-    # generate the paths and calculate the exercise boundaries
     ao.V = euler_path(m, n, ao.S0, ao.sigma, ao.r, ao.K, ao.T, ao.dW, test_functions, exercise_boundary)
 
     print("V = {}".format(ao.V))
@@ -225,7 +215,6 @@ def main(m, n, S0, T, K, r, sigma, seed_1, seed_2):
     ao = AmericanPutOption(m, n, S0, T, K, r, sigma)
     ao.dW = np.random.normal(0,1,(m,n))
 
-    # calculate the price of the American option
     ao.tangent_method(test_functions, exercise_boundary)
 
     print("V_lower = {}".format(ao.S))
@@ -275,7 +264,7 @@ class SimpleLinearRegression:
             self.update(X, y, learning_rate)
 
 t0 = time()
-#      m    n   S0  T  K    r  sigma seed_1 seed_2
+#      m    n   S0  T  K   r  sigma seed_1 seed_2
 main(10000, 100, 1, 1, 1, 0.04, 0.2, 4, 4)
 t1 = time()
 d1 = t1 - t0
